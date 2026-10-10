@@ -1,0 +1,16 @@
+# Render Blueprint: one free web service running the Next.js server.
+# RePlay keeps sessions in memory, so it must stay a SINGLE instance (never scale to 2+).
+services:
+  - type: web
+    name: replay
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:render
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Enables the demo tools (seed / reset). Anyone with the URL can use them; set to "false" for a public launch.
+      - key: REPLAY_DEMO
+        value: "true"

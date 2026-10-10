@@ -6,6 +6,7 @@
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
+    "start:render": "next start -H 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "test:store": "npx --yes tsx@4.23.15 --conditions react-server scripts/store-smoke.ts",
     "test:minigames": "npx --yes tsx@4.23.15 scripts/minigames-smoke.ts",
@@ -35,5 +36,8 @@
     "postcss": "8.5.29",
     "tailwindcss": "3.4.19",
     "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
