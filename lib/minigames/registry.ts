@@ -23,6 +23,7 @@ export const MINIGAMES: Readonly<Record<MinigameId, MinigameDef>> = {
     icon: "sparkles",
     durationSec: 20,
     starThresholds: null,
+    fullScore: null,
     categoryAffinity: [ItemCategory.LAPTOP, ItemCategory.MONITOR],
   },
   RECYCLE_CATCH: {
@@ -34,8 +35,9 @@ export const MINIGAMES: Readonly<Record<MinigameId, MinigameDef>> = {
     descEn: "Catch falling gadgets in the recycling bin. Dodge bananas and plastic.",
     descKa: "დაიჭირეთ ჩამოვარდნილი გაჯეტები გადამამუშავებელ ურნაში. აარიდეთ ბანანი და პლასტმასა.",
     icon: "recycle",
-    durationSec: 25,
-    starThresholds: [200, 400, 650],
+    durationSec: 28,
+    starThresholds: [200, 450, 750],
+    fullScore: 900,
     categoryAffinity: [ItemCategory.PHONE, ItemCategory.CABLE, ItemCategory.BATTERY],
   },
   PICK_BOX: {
@@ -49,6 +51,7 @@ export const MINIGAMES: Readonly<Record<MinigameId, MinigameDef>> = {
     icon: "gift",
     durationSec: 20,
     starThresholds: null,
+    fullScore: null,
     categoryAffinity: [ItemCategory.LAPTOP, ItemCategory.CABLE],
   },
   CLAW: {
@@ -62,11 +65,26 @@ export const MINIGAMES: Readonly<Record<MinigameId, MinigameDef>> = {
     icon: "grab",
     durationSec: 20,
     starThresholds: null,
+    fullScore: null,
     categoryAffinity: [ItemCategory.MONITOR, ItemCategory.PHONE],
+  },
+  SKY_FLAP: {
+    id: "SKY_FLAP",
+    enabled: true,
+    kind: "SKILL",
+    labelEn: "Sky Flap",
+    labelKa: "ცაში ფრენა",
+    descEn: "Tap to flap and glide through the gates. Every gate raises your reward.",
+    descKa: "შეეხეთ ფრთების საქნევად და გაიარეთ კარიბჭეები. თითოეული კარიბჭე ჯილდოს ზრდის.",
+    icon: "bird",
+    durationSec: 30,
+    starThresholds: [3, 7, 11],
+    fullScore: 12,
+    categoryAffinity: [ItemCategory.CABLE, ItemCategory.BATTERY, ItemCategory.MONITOR],
   },
 };
 
-export const MINIGAME_IDS: readonly MinigameId[] = ["WHEEL", "RECYCLE_CATCH", "PICK_BOX", "CLAW"];
+export const MINIGAME_IDS: readonly MinigameId[] = ["WHEEL", "RECYCLE_CATCH", "PICK_BOX", "CLAW", "SKY_FLAP"];
 
 export function enabledMinigames(): MinigameId[] {
   return MINIGAME_IDS.filter((id) => MINIGAMES[id].enabled);

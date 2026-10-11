@@ -15,6 +15,8 @@ RePlay uses the following open-source packages in the game experience. Versions 
 |---|---|---|
 | [DeveloperWilliams/Catch-the-Falling-Objects-game](https://github.com/DeveloperWilliams/Catch-the-Falling-Objects-game) | README states MIT, but the repository has no `LICENSE` file | Read as a reference. The golden bonus object idea (a rare item worth extra points) was re-implemented in `lib/minigames/catch-engine.ts`; no code or assets were copied. Used with the project owner's consent for a hackathon prototype. Re-check the licence before any commercial release. |
 
+| [noanonoa/flappy-bird](https://github.com/noanonoa/flappy-bird) and [luevano/flappybirdgodot](https://github.com/luevano/flappybirdgodot) | First: no `LICENSE` file. Second: has a `LICENSE` file; Godot/GDScript project | Read only, as a reference for the tap-to-flap gravity and gate mechanics behind Sky Flap. Their sprites and sounds are ripped from, or credited to, the original commercial game and third-party asset packs, so **none of their code or assets were copied**. `lib/minigames/flap-engine.ts` and the bird and gates are original. |
+
 ## Games that are not open-source imports
 
-Recycle Catch, Pick a Device, Claw Machine and all sprites and backgrounds are RePlay's own original code and artwork. A search for permissively licensed (MIT) drop-in versions found nothing usable: the only claw-machine repository found targets the old Phaser 2 engine with an Eclipse project layout, and no falling-item catch game with a confirmed licence turned up.
+Recycle Catch, Sky Flap, Pick a Device, Claw Machine and all sprites and backgrounds are RePlay's own original code and artwork. A search for permissively licensed (MIT) drop-in versions found nothing usable: the only claw-machine repository found targets the old Phaser 2 engine with an Eclipse project layout, and no falling-item catch game with a confirmed licence turned up.

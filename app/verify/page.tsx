@@ -5,16 +5,15 @@ import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, ArrowRight, Loader2, RefreshCw, ShieldCheck, User } from "lucide-react";
 import { LEVEL_CONFIG, type Level, type LevelProgress, type Recycler } from "@/types";
-import type { ClaimBody, ClaimResponse, DemoStatusResponse, RecyclerResponse, SpinPayload } from "@/types/api";
+import type { ClaimBody, ClaimResponse, DemoStatusResponse, RecyclerResponse, RewardBody, SpinPayload } from "@/types/api";
 import { apiFetch, type ClientApiError } from "@/lib/client-api";
 import { useLang } from "@/lib/i18n";
 import { nextStage, type FlowContext, type RewardStage } from "@/lib/minigames/flow";
 import { pickMinigame } from "@/lib/minigames/pick";
-import { isMinigameId, MINIGAMES } from "@/lib/minigames/registry";
-import { hashString } from "@/lib/minigames/rng";
+import { enabledMinigames, isMinigameId, MINIGAMES } from "@/lib/minigames/registry";
 import { clearResume, getResume, loadArcade, recordPick, recordResult, setResume } from "@/lib/minigames/storage";
 import { STORE_THEME_BY_RETAILER, THEMES } from "@/lib/minigames/themes";
-import type { MinigameId, MinigameResult } from "@/lib/minigames/types";
+import type { MinigameId, MinigameResult, RewardDraw } from "@/lib/minigames/types";
 import { createNewRecyclerId, getOrCreateRecyclerId } from "@/lib/recycler-client";
 import { ConfirmedStage } from "@/components/game/ConfirmedStage";
 import { GameIntro } from "@/components/game/GameIntro";
@@ -58,6 +57,19 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+/** Real randomness for the game seed and the game choice (nothing is derived from the session id). */
+function randomFloat(): number {
+  const buffer = new Uint32Array(1);
+  crypto.getRandomValues(buffer);
+  return (buffer[0] ?? 0) / 4294967296;
+}
+
+function randomSeed(): number {
+  const buffer = new Uint32Array(1);
+  crypto.getRandomValues(buffer);
+  return buffer[0] ?? 1;
+}
+
 function levelColor(level: Level): string {
   return `hsl(var(--level-${level.toLowerCase()}))`;
 }
@@ -75,7 +87,11 @@ export default function VerifyPage() {
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [claim, setClaim] = useState<ClaimResponse | null>(null);
-  const [resumed, setResumed] = useState<SpinPayload | null>(null);
+  const [reward, setReward] = useState<SpinPayload | null>(null);
+  const [awarding, setAwarding] = useState(false);
+  const [awardFailed, setAwardFailed] = useState(false);
+  const [pendingFinish, setPendingFinish] = useState<MinigameResult | null>(null);
+  const [playSeed, setPlaySeed] = useState(1);
   const [gameId, setGameId] = useState<MinigameId | null>(null);
   const [result, setResult] = useState<MinigameResult | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -101,13 +117,22 @@ export default function VerifyPage() {
     void apiFetch<DemoStatusResponse>("/api/demo").then((demo) => {
       if (demo.ok) setDemoEnabled(demo.data.enabled);
     });
-    void loadRecycler(id).then((data) => {
+    void loadRecycler(id).then(async (data) => {
       const resumeSession = getResume();
       if (resumeSession && data?.latestVoucher && data.latestVoucher.voucher.sessionId === resumeSession) {
-        setResumed(data.latestVoucher);
+        setReward(data.latestVoucher);
         setStage("TICKET");
       } else if (resumeSession) {
-        clearResume();
+        // Claimed earlier but the reward was never issued (reload mid-game): the game is never a gate,
+        // so the server draws a reward now.
+        const body: RewardBody = { sessionId: resumeSession, recyclerId: id };
+        const drawn = await apiFetch<SpinPayload>("/api/reward", { method: "POST", body: JSON.stringify(body) });
+        if (drawn.ok) {
+          setReward(drawn.data);
+          setStage("TICKET");
+        } else {
+          clearResume();
+        }
       }
       setBooting(false);
     });
@@ -132,7 +157,6 @@ export default function VerifyPage() {
   }, [lockedUntil]);
 
   const locked = lockedUntil !== null && now < lockedUntil;
-  const spin: SpinPayload | null = claim?.voucher ?? resumed;
   const gameKind = gameId ? MINIGAMES[gameId].kind : null;
 
   const context = useCallback(
@@ -179,11 +203,14 @@ export default function VerifyPage() {
       setRecycler(data.recycler);
       setResult(null);
       setClaim(data);
-      if (data.voucher) setResume(data.session.id);
+      setReward(data.voucher);
+      setPlaySeed(randomSeed());
+      setResume(data.session.id);
 
-      // Game choice is client-side and deterministic; the prize is not an input.
+      // Nothing is preset: the game is chosen at random and the reward comes from how it is played.
+      // A replayed claim of a session that already has a voucher goes straight to the ticket.
       let chosen: MinigameId | null = null;
-      if (data.voucher && !data.alreadyClaimed) {
+      if (!data.voucher) {
         const forced = new URLSearchParams(window.location.search).get("game");
         const arcade = loadArcade();
         chosen =
@@ -195,38 +222,81 @@ export default function VerifyPage() {
                 sessionId: data.session.id,
                 recentIds: arcade.recentIds,
                 firstEverReward: !arcade.firstRewardDone,
+                random: randomFloat,
               });
         recordPick(chosen);
       }
       setGameId(chosen);
       setStage(
         data.voucher
-          ? nextStage("VERIFYING", {
-              alreadyClaimed: data.alreadyClaimed,
+          ? "TICKET"
+          : nextStage("VERIFYING", {
+              alreadyClaimed: false,
               hasLevelUp: !data.alreadyClaimed && data.levelUp !== null,
               hasNewBadges: false,
               gameKind: chosen ? MINIGAMES[chosen].kind : null,
               skipped: false,
-            })
-          : "TICKET",
+            }),
       );
     },
     [demoEnabled, recyclerId],
+  );
+
+  /** Asks the server to issue the reward for this session (random draw for luck games, score for skill games). */
+  const requestReward = useCallback(
+    async (extra: Partial<RewardBody> = {}): Promise<SpinPayload | null> => {
+      if (!claim || !recyclerId) return null;
+      const body: RewardBody = { sessionId: claim.session.id, recyclerId, ...(gameId ? { gameId } : {}), ...extra };
+      const response = await apiFetch<SpinPayload>("/api/reward", { method: "POST", body: JSON.stringify(body) });
+      if (!response.ok) return null;
+      setReward(response.data);
+      return response.data;
+    },
+    [claim, gameId, recyclerId],
+  );
+
+  /** Used by luck games at the moment of the spin, pick or grab. */
+  const draw = useCallback(async (): Promise<RewardDraw | null> => {
+    const issued = await requestReward();
+    return issued ? { discountPercent: issued.voucher.discountPercent, segmentIndex: issued.segmentIndex } : null;
+  }, [requestReward]);
+
+  const completeAward = useCallback(
+    async (finished: MinigameResult) => {
+      if (!reward) {
+        // A skill game reports its score; a luck game skipped before drawing gets a random draw.
+        const kind = gameId ? MINIGAMES[gameId].kind : null;
+        setAwarding(true);
+        setAwardFailed(false);
+        const issued = kind === "SKILL" ? await requestReward({ score: finished.score, durationMs: finished.durationMs }) : await requestReward();
+        setAwarding(false);
+        if (!issued) {
+          setPendingFinish(finished);
+          setAwardFailed(true);
+          return;
+        }
+      }
+      setPendingFinish(null);
+      advance("PLAYING", { skipped: finished.skipped });
+    },
+    [advance, gameId, requestReward, reward],
   );
 
   const handleFinish = useCallback(
     (finished: MinigameResult) => {
       if (gameId) recordResult(gameId, finished);
       setResult(finished);
-      advance("PLAYING", { skipped: finished.skipped });
+      void completeAward(finished);
     },
-    [advance, gameId],
+    [completeAward, gameId],
   );
 
   const reset = useCallback(() => {
     clearResume();
     setClaim(null);
-    setResumed(null);
+    setReward(null);
+    setPendingFinish(null);
+    setAwardFailed(false);
     setResult(null);
     setGameId(null);
     setPin("");
@@ -240,7 +310,9 @@ export default function VerifyPage() {
     setRecyclerId(id);
     clearResume();
     setClaim(null);
-    setResumed(null);
+    setReward(null);
+    setPendingFinish(null);
+    setAwardFailed(false);
     setResult(null);
     setGameId(null);
     setPin("");
@@ -251,15 +323,16 @@ export default function VerifyPage() {
   const closeSheet = useCallback(() => setSheetOpen(false), []);
   const shownLevel = progress?.level ?? recycler?.level ?? null;
   const gameProps = useMemo(() => {
-    if (!claim || !spin) return null;
+    if (!claim) return null;
+    const { range } = claim;
     return {
       theme: THEMES[STORE_THEME_BY_RETAILER[claim.session.retailer]],
-      level: spin.wheelLevel,
-      levelColor: levelColor(spin.wheelLevel),
-      prize: { discountPercent: spin.voucher.discountPercent, segmentIndex: spin.segmentIndex, segments: spin.wheelSegments },
-      seed: hashString(claim.session.id),
+      level: range.level,
+      levelColor: levelColor(range.level),
+      reward: { minPercent: range.minPercent, maxPercent: range.maxPercent, segments: LEVEL_CONFIG[range.level].wheel, draw },
+      seed: playSeed,
     };
-  }, [claim, spin]);
+  }, [claim, draw, playSeed]);
 
   const inEntry = stage === "IDLE" || stage === "VERIFYING";
   const showHeaderCard = stage !== "PLAYING" && stage !== "PRIZE_REVEAL" && stage !== "GAME_INTRO";
@@ -342,6 +415,12 @@ export default function VerifyPage() {
           <motion.div key="intro" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <GameIntro
               game={MINIGAMES[gameId]}
+              range={claim?.range ?? { minPercent: 15, maxPercent: 20 }}
+              choices={demoEnabled ? enabledMinigames().map((id) => MINIGAMES[id]) : undefined}
+              onChoose={(id) => {
+                recordPick(id);
+                setGameId(id);
+              }}
               reducedMotion={reducedMotion}
               onPlay={() => advance("GAME_INTRO")}
               onRevealNow={() => handleFinish({ stars: 0, score: 0, completed: false, skipped: true, durationMs: 0 })}
@@ -360,7 +439,7 @@ export default function VerifyPage() {
                   </h1>
                   <p className="text-muted-foreground">Thanks for giving e-waste a second round.</p>
                 </div>
-                {spin ? <VoucherTicket voucher={spin.voucher} /> : <p role="alert" className="rounded-2xl bg-amber/20 p-4 text-sm font-medium">{claim?.spinError?.message ?? t("ticket.missing")}</p>}
+                {reward ? <VoucherTicket voucher={reward.voucher} /> : <p role="alert" className="rounded-2xl bg-amber/20 p-4 text-sm font-medium">{t("ticket.missing")}</p>}
                 {result && !result.skipped && gameKind === "SKILL" && (
                   <div className="space-y-1 text-center">
                     <p className="text-sm text-muted-foreground">{t("ticket.stars")}</p>
@@ -396,7 +475,26 @@ export default function VerifyPage() {
         <MinigameHost key={claim?.session.id} gameId={gameId} {...gameProps} mode="REWARD" reducedMotion={reducedMotion} onFinish={handleFinish} />
       )}
 
-      {stage === "PRIZE_REVEAL" && spin && <PrizeReveal discountPercent={spin.voucher.discountPercent} levelColor={levelColor(spin.wheelLevel)} reducedMotion={reducedMotion} onContinue={() => advance("PRIZE_REVEAL")} />}
+      {stage === "PLAYING" && (awarding || awardFailed) && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-sky/90 p-6" role="alertdialog" aria-live="assertive" aria-label={t("reward.counting")}>
+          <div className="w-full max-w-sm space-y-4 rounded-3xl border-[3px] border-ink bg-white p-6 text-center shadow-[0_6px_0_hsl(var(--ink))]">
+            {awardFailed ? (
+              <>
+                <p className="font-display text-xl font-bold">{t("reward.error")}</p>
+                <Button size="lg" className="w-full" onClick={() => pendingFinish && void completeAward(pendingFinish)}>
+                  <RefreshCw aria-hidden="true" /> {t("reward.retry")}
+                </Button>
+              </>
+            ) : (
+              <p className="flex items-center justify-center gap-3 font-display text-xl font-bold">
+                <Loader2 className="size-6 animate-spin" aria-hidden="true" /> {t("reward.counting")}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {stage === "PRIZE_REVEAL" && reward && <PrizeReveal discountPercent={reward.voucher.discountPercent} levelColor={levelColor(reward.wheelLevel)} reducedMotion={reducedMotion} onContinue={() => advance("PRIZE_REVEAL")} />}
 
       <RewardsSheet open={sheetOpen} onClose={closeSheet} />
 

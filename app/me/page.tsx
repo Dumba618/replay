@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useReducedMotion } from "framer-motion";
 import { ArrowLeft, Info, Loader2, RotateCcw } from "lucide-react";
-import { LEVEL_CONFIG, Level, Retailer, type Recycler } from "@/types";
+import { LEVEL_CONFIG, Level, Retailer, rewardRangeForLevel, type Recycler } from "@/types";
 import type { RecyclerResponse } from "@/types/api";
 import { apiFetch } from "@/lib/client-api";
 import { setLang, useLang, type Lang } from "@/lib/i18n";
@@ -179,7 +179,16 @@ export default function MePage() {
           theme={THEMES[STORE_THEME_BY_RETAILER[Retailer.ELIT]]}
           level={level}
           levelColor={levelColor}
-          prize={{ discountPercent: 0, segmentIndex: 0, segments: LEVEL_CONFIG[level].wheel }}
+          reward={{
+            minPercent: rewardRangeForLevel(level).min,
+            maxPercent: rewardRangeForLevel(level).max,
+            segments: LEVEL_CONFIG[level].wheel,
+            draw: async () => {
+              const segments = LEVEL_CONFIG[level].wheel;
+              const segmentIndex = Math.floor(Math.random() * segments.length);
+              return { discountPercent: segments[segmentIndex]?.discountPercent ?? 0, segmentIndex };
+            },
+          }}
           seed={run.seed}
           mode="PRACTICE"
           reducedMotion={reducedMotion}

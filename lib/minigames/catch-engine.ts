@@ -13,7 +13,7 @@ import type { ItemDef, ThemeDef } from "@/lib/minigames/types";
 export type SlotKind = "GOOD" | "BAD" | "BATTERY" | "BONUS";
 export type CatchEventType = "GOOD" | "BAD" | "BATTERY" | "BONUS" | "LIFE" | "MISSED_GOOD";
 
-export const CATCH_DURATION_SEC = 25;
+export const CATCH_DURATION_SEC = 28;
 export const CATCH_MAX_LIVES = 3;
 export const CATCH_MAX_SLOTS = 16;
 export const CATCH_COMBO_BAR = 12;
@@ -34,7 +34,9 @@ const MAX_MULTIPLIER = 3;
 const BATTERY_CHANCE = 0.06;
 const BONUS_CHANCE = 0.05;
 const BONUS_MULTIPLE = 5;
-const BAD_CHANCE = 0.3;
+/** Share of falling objects that are bad: grows from the first to the second value over the game. */
+const BAD_CHANCE_START = 0.2;
+const BAD_CHANCE_END = 0.5;
 
 export interface CatchLoadout {
   /** Item per pool slot; slot i is rendered once and re-used for the whole game. */
@@ -117,16 +119,17 @@ export function createCatchEngine(options: CatchEngineOptions): CatchEngine {
     endReason: null as "TIME" | "LIVES" | null,
   };
 
-  const rollKind = (): SlotKind => {
+  const rollKind = (progress: number): SlotKind => {
+    const badChance = lerp(BAD_CHANCE_START, BAD_CHANCE_END, progress);
     const roll = rng();
     if (roll < BONUS_CHANCE && slotsByKind.BONUS.length > 0) return "BONUS";
     if (roll < BONUS_CHANCE + BATTERY_CHANCE && slotsByKind.BATTERY.length > 0) return "BATTERY";
-    if (roll < BONUS_CHANCE + BATTERY_CHANCE + BAD_CHANCE && slotsByKind.BAD.length > 0) return "BAD";
+    if (roll < BONUS_CHANCE + BATTERY_CHANCE + badChance && slotsByKind.BAD.length > 0) return "BAD";
     return slotsByKind.GOOD.length > 0 ? "GOOD" : "BAD";
   };
 
   const spawn = (progress: number): boolean => {
-    const kind = rollKind();
+    const kind = rollKind(progress);
     const slots = slotsByKind[kind];
     if (slots.length === 0) return true;
     const offset = Math.floor(rng() * slots.length);
@@ -137,7 +140,7 @@ export function createCatchEngine(options: CatchEngineOptions): CatchEngine {
       item.active = true;
       item.x = 0.1 + 0.8 * rng();
       item.y = SPAWN_Y;
-      item.speed = lerp(0.38, 0.62, progress) * (0.92 + 0.16 * rng());
+      item.speed = lerp(0.34, 1.5, progress ** 1.2) * (0.88 + 0.24 * rng());
       item.wobble = rng() * Math.PI * 2;
       item.passed = false;
       return true;
@@ -156,7 +159,7 @@ export function createCatchEngine(options: CatchEngineOptions): CatchEngine {
 
     nextSpawn -= FIXED_STEP;
     if (nextSpawn <= 0) {
-      if (spawn(progress)) nextSpawn = lerp(0.95, 0.55, progress) * (0.85 + 0.3 * rng());
+      if (spawn(progress)) nextSpawn = lerp(1.0, 0.22, progress) * (0.82 + 0.36 * rng());
       else nextSpawn = 0.1;
     }
 

@@ -1,6 +1,6 @@
 import type { ItemCategory, Level, WheelSegment } from "@/types";
 
-export type MinigameId = "WHEEL" | "RECYCLE_CATCH" | "PICK_BOX" | "CLAW";
+export type MinigameId = "WHEEL" | "RECYCLE_CATCH" | "PICK_BOX" | "CLAW" | "SKY_FLAP";
 export type MinigameKind = "SKILL" | "LUCK";
 export type StoreTheme = "ELECTRONICS" | "SUPERMARKET";
 
@@ -29,7 +29,7 @@ export const SPRITE_NAMES = [
 export type SpriteName = (typeof SPRITE_NAMES)[number];
 
 /** Icons used by the game chrome and registry cards. */
-export type GameIconName = "sparkles" | "recycle" | "gift" | "grab";
+export type GameIconName = "sparkles" | "recycle" | "gift" | "grab" | "bird";
 
 export type ItemKind = "GOOD" | "BAD" | "BATTERY" | "BONUS";
 
@@ -55,6 +55,12 @@ export interface ThemeDef {
   readonly boxLabelEn: string;
 }
 
+export interface RewardDraw {
+  readonly discountPercent: number;
+  /** Index of the drawn segment inside `reward.segments`. */
+  readonly segmentIndex: number;
+}
+
 export interface MinigameResult {
   /** Cosmetic only. Always 0 for luck games. */
   readonly stars: 0 | 1 | 2 | 3;
@@ -69,11 +75,17 @@ export interface MinigameProps {
   readonly level: Level;
   /** CSS colour (hsl var) used to tint the skin. Cosmetic; difficulty never depends on level. */
   readonly levelColor: string;
-  /** Already decided by the server. A game may only DISPLAY it. */
-  readonly prize: {
-    readonly discountPercent: number;
-    readonly segmentIndex: number;
+  /**
+   * Reward access. Nothing is decided in advance: LUCK games call `draw()` at the decisive moment
+   * (the server draws a random segment then); SKILL games ignore it and report their score through
+   * `onFinish`, from which the server computes the discount.
+   */
+  readonly reward: {
+    readonly minPercent: number;
+    readonly maxPercent: number;
     readonly segments: readonly WheelSegment[];
+    /** Resolves with the drawn reward, or null if it could not be obtained (the game offers a retry). */
+    readonly draw: () => Promise<RewardDraw | null>;
   };
   readonly seed: number;
   readonly mode: "REWARD" | "PRACTICE";
@@ -112,5 +124,7 @@ export interface MinigameDef {
   readonly durationSec: number;
   /** Strictly ascending score thresholds for 1, 2 and 3 stars. SKILL games only. */
   readonly starThresholds: readonly [number, number, number] | null;
+  /** SKILL games: the score that earns the level's top reward. LUCK games: null. */
+  readonly fullScore: number | null;
   readonly categoryAffinity: readonly ItemCategory[];
 }

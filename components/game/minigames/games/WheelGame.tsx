@@ -7,10 +7,12 @@ import type { GameProps } from "@/lib/minigames/types";
 import { haptic } from "@/lib/haptics";
 import { useLang } from "@/lib/i18n";
 
-/** LUCK game: the existing Fortune Wheel. It only animates to the server-chosen segment. */
-export default function WheelGame({ prize, mode, onFinish, reducedMotion }: GameProps) {
+/** LUCK game: the existing Fortune Wheel. The server draws the segment at the moment of the spin. */
+export default function WheelGame({ reward, mode, onFinish, reducedMotion }: GameProps) {
   const { t } = useLang();
+  const [discount, setDiscount] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [failed, setFailed] = useState(false);
   const startedAt = useRef(performance.now());
   const done = useRef(false);
 
@@ -20,20 +22,36 @@ export default function WheelGame({ prize, mode, onFinish, reducedMotion }: Game
     onFinish({ stars: 0, score: 0, completed: true, skipped: false, durationMs: Math.round(performance.now() - startedAt.current) });
   };
 
+  const draw = async (): Promise<number | null> => {
+    const drawn = await reward.draw();
+    if (!drawn) {
+      setFailed(true);
+      return null;
+    }
+    setFailed(false);
+    setDiscount(drawn.discountPercent);
+    return drawn.segmentIndex;
+  };
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col items-center justify-start gap-4 px-4 pt-6">
       <p className="rounded-2xl border-2 border-ink/20 bg-white/80 px-4 py-2 text-center text-sm font-medium text-ink">{t("wheel.hint")}</p>
       <FortuneWheel
-        segments={prize.segments}
-        targetIndex={prize.segmentIndex}
+        segments={reward.segments}
+        getTarget={draw}
         reducedMotion={reducedMotion}
-        label={t("wheel.spin")}
+        label={failed ? t("reward.retry") : t("wheel.spin")}
         onFinished={() => {
           haptic("success");
           setRevealed(true);
         }}
       />
-      {revealed && <RewardCard discountPercent={prize.discountPercent} mode={mode} reducedMotion={reducedMotion} onContinue={finish} />}
+      {failed && (
+        <p role="alert" className="rounded-2xl bg-white px-4 py-2 text-center text-sm font-semibold text-destructive">
+          {t("reward.error")}
+        </p>
+      )}
+      {revealed && discount !== null && <RewardCard discountPercent={discount} mode={mode} reducedMotion={reducedMotion} onContinue={finish} />}
     </div>
   );
 }

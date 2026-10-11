@@ -15,6 +15,7 @@ import {
   VOUCHER_TTL_MS,
   VoucherStatus,
   buildLevelProgress,
+  discountForScore,
   getLevelForDropOffs,
   validateLevelConfig,
   type AuditEvent,
@@ -522,13 +523,7 @@ export function spinForVoucher(input: SpinInput, draw: WheelDraw, now: number = 
   const wheelLevel: Level = getLevelForDropOffs(countClaimedBefore(st, recyclerId, session.claimOrdinal) + 1);
   const table = LEVEL_CONFIG[wheelLevel].wheel;
 
-  if (session.voucher) {
-    const existing = session.voucher;
-    const index = table.findIndex((segment) => segment.id === existing.segmentId);
-    const segment = table[index];
-    if (!segment) return fail(StoreErrorCode.INVALID_STATE, "Stored prize no longer exists in the prize table.");
-    return { ok: true, voucher: clone(existing), segment: clone(segment), segmentIndex: index, wheelLevel: existing.wheelLevel, alreadySpun: true };
-  }
+  if (session.voucher) return existingReward(session.voucher);
 
   if (now - session.claimedAt > SPIN_WINDOW_MS) {
     return fail(StoreErrorCode.SPIN_WINDOW_CLOSED, "The wheel is only available shortly after the hand-off.");
@@ -541,15 +536,30 @@ export function spinForVoucher(input: SpinInput, draw: WheelDraw, now: number = 
     throw new Error(`Wheel draw returned an illegal segment "${drawn.id}" for level ${wheelLevel}`);
   }
 
+  const voucher = issueVoucher(st, session, recyclerId, wheelLevel, segment.discountPercent, segment.label, segment.id, now);
+  return { ok: true, voucher: clone(voucher), segment: clone(segment), segmentIndex: index, wheelLevel, alreadySpun: false };
+}
+
+/** Creates, stores and audits the single voucher of a session. */
+function issueVoucher(
+  st: StoreState,
+  session: MutableSession,
+  recyclerId: string,
+  wheelLevel: Level,
+  discountPercent: number,
+  label: string,
+  segmentId: string,
+  now: number,
+): MutableVoucher {
   const voucher: MutableVoucher = {
     id: randomUUID(),
     code: generateVoucherCode(st),
     sessionId: session.id,
     recyclerId,
     retailer: session.retailer,
-    discountPercent: segment.discountPercent,
-    label: segment.label,
-    segmentId: segment.id,
+    discountPercent,
+    label,
+    segmentId,
     wheelLevel,
     status: VoucherStatus.ISSUED,
     issuedAt: now,
@@ -560,7 +570,75 @@ export function spinForVoucher(input: SpinInput, draw: WheelDraw, now: number = 
   session.rev += 1;
   st.voucherIndex.set(voucher.code, session.id);
   recordAudit(st, AuditEventType.VOUCHER_ISSUED, session.id, recyclerId, `${voucher.code} ${voucher.discountPercent}% (${wheelLevel})`, now);
-  return { ok: true, voucher: clone(voucher), segment: clone(segment), segmentIndex: index, wheelLevel, alreadySpun: false };
+  return voucher;
+}
+
+/** The reward of a session that already has a voucher (idempotent replays). Skill vouchers have no wheel segment. */
+function existingReward(voucher: MutableVoucher): SpinResult {
+  const table = LEVEL_CONFIG[voucher.wheelLevel].wheel;
+  const index = table.findIndex((segment) => segment.id === voucher.segmentId);
+  const segment: WheelSegment = table[index] ?? { id: voucher.segmentId, label: voucher.label, discountPercent: voucher.discountPercent, weight: 1 };
+  return { ok: true, voucher: clone(voucher), segment: clone(segment), segmentIndex: index, wheelLevel: voucher.wheelLevel, alreadySpun: true };
+}
+
+const SKILL_GAME_ID_PATTERN = /^[A-Z][A-Z_]{2,23}$/;
+const SKILL_MAX_DURATION_MS = 40_000;
+const SKILL_MAX_SCORE = 5000;
+/** A play can score at most this many points per second (plus a small allowance); anything above is rejected. */
+const SKILL_MAX_POINTS_PER_SECOND = 90;
+const SKILL_SCORE_ALLOWANCE = 120;
+/** How much longer than the real time since the claim a reported play may last (network and clock slack). */
+const SKILL_TIME_SLACK_MS = 2000;
+
+export interface SkillAwardInput {
+  readonly sessionId: string;
+  readonly recyclerId: string;
+  readonly gameId: string;
+  readonly score: number;
+  readonly durationMs: number;
+  /** Score at which the level's maximum reward is reached (from the game registry). */
+  readonly fullScore: number;
+}
+
+/**
+ * Issues the voucher for a SKILL game: the discount scales with the score between the 15% floor and
+ * the level's cap. One voucher per session (replays return it). The score is client-reported, so the
+ * server only accepts values that are plausible for the time elapsed since the claim.
+ */
+export function awardSkillVoucher(input: SkillAwardInput, now: number = Date.now()): SpinResult {
+  const st = getState();
+  const recyclerId = normalizeId(input?.recyclerId);
+  const sessionId = normalizeId(input?.sessionId);
+  if (!UUID_PATTERN.test(recyclerId) || sessionId.length === 0) return fail(StoreErrorCode.INVALID_INPUT, "Session and recycler ids are required.");
+  if (typeof input.gameId !== "string" || !SKILL_GAME_ID_PATTERN.test(input.gameId)) return fail(StoreErrorCode.INVALID_INPUT, "Unknown game.");
+  if (!Number.isInteger(input.score) || input.score < 0 || input.score > SKILL_MAX_SCORE) return fail(StoreErrorCode.INVALID_INPUT, "Score must be a whole number between 0 and 5000.");
+  if (!Number.isInteger(input.durationMs) || input.durationMs < 0 || input.durationMs > SKILL_MAX_DURATION_MS) return fail(StoreErrorCode.INVALID_INPUT, "Play time is out of range.");
+  if (!(input.fullScore > 0)) return fail(StoreErrorCode.INVALID_INPUT, "This game has no score-based reward.");
+
+  const session = st.sessions.get(sessionId);
+  if (!session) return fail(StoreErrorCode.SESSION_NOT_FOUND, "Drop-off not found.");
+  refresh(st, session, now);
+  if (session.status === SessionStatus.VOID) return fail(StoreErrorCode.SESSION_VOID, "This drop-off was cancelled.");
+  if (session.status !== SessionStatus.CLAIMED || session.claimOrdinal === null || session.claimedAt === null) {
+    return fail(StoreErrorCode.NOT_CLAIMED, "Enter the PIN before playing.");
+  }
+  if (session.claimedByRecyclerId !== recyclerId) return fail(StoreErrorCode.FORBIDDEN, "This drop-off belongs to another profile.");
+  if (session.voucher) return existingReward(session.voucher);
+  if (now - session.claimedAt > SPIN_WINDOW_MS) return fail(StoreErrorCode.SPIN_WINDOW_CLOSED, "The reward game is only available shortly after the hand-off.");
+  if (input.durationMs > now - session.claimedAt + SKILL_TIME_SLACK_MS) {
+    return fail(StoreErrorCode.INVALID_INPUT, "Reported play time is longer than the time since your drop-off.");
+  }
+  if (input.score > SKILL_SCORE_ALLOWANCE + (SKILL_MAX_POINTS_PER_SECOND * input.durationMs) / 1000) {
+    return fail(StoreErrorCode.INVALID_INPUT, "That score is not plausible for the time played.");
+  }
+
+  const wheelLevel: Level = getLevelForDropOffs(countClaimedBefore(st, recyclerId, session.claimOrdinal) + 1);
+  const discountPercent = discountForScore(input.score, input.fullScore, wheelLevel);
+  const label = `${discountPercent}% off`;
+  const segmentId = `SKILL-${input.gameId}-${input.score}`;
+  const voucher = issueVoucher(st, session, recyclerId, wheelLevel, discountPercent, label, segmentId, now);
+  const segment: WheelSegment = { id: segmentId, label, discountPercent, weight: 1 };
+  return { ok: true, voucher: clone(voucher), segment, segmentIndex: -1, wheelLevel, alreadySpun: false };
 }
 
 /** Cashier action: mark a voucher as used at the till. Idempotent. */

@@ -63,7 +63,7 @@ export function Hud({ kind, state, remainingSec, durationSec, skipVisible, onSki
         </button>
       </div>
 
-      {kind === "SKILL" && (
+      {kind === "SKILL" && state.lives !== null && (
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-1 rounded-full border-2 border-ink/20 bg-white/85 px-2 py-1" role="img" aria-label={`${t("hud.lives")}: ${state.lives ?? 0} / ${state.maxLives}`}>
             {Array.from({ length: state.maxLives }, (_, index) => {

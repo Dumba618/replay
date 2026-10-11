@@ -7,8 +7,9 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { ItemCategory, Retailer } from "../types";
+import { ItemCategory, LEVEL_CONFIG, Level, MIN_DISCOUNT_PERCENT, Retailer, discountForScore, rewardRangeForLevel } from "../types";
 import { BOX_HALF_WIDTH, CATCH_DURATION_SEC, CATCH_MAX_SLOTS, MOUTH_HALF_WIDTH, buildCatchLoadout, createCatchEngine } from "../lib/minigames/catch-engine";
+import { FLAP_DURATION_SEC, GROUND_Y, PIPE_WIDTH, createFlapEngine } from "../lib/minigames/flap-engine";
 import { nextStage, type FlowContext, type RewardStage } from "../lib/minigames/flow";
 import { pickMinigame, SIGNATURE_GAME } from "../lib/minigames/pick";
 import { enabledMinigames, HARD_CAP_SEC, MINIGAMES, MINIGAME_IDS, starsForScore } from "../lib/minigames/registry";
@@ -52,17 +53,19 @@ for (const id of MINIGAME_IDS) {
   assert(def.durationSec > 0 && def.durationSec <= HARD_CAP_SEC, `${id} duration within the 30 s cap`);
   if (def.kind === "SKILL") {
     assert(def.starThresholds !== null, `${id} needs star thresholds`);
+    assert(def.fullScore !== null && def.fullScore > 0, `${id} needs a full-score target for the reward`);
     const [a, b, c] = def.starThresholds!;
     assert(a < b && b < c, `${id} thresholds strictly ascending`);
   } else {
     assert.equal(def.starThresholds, null, `${id} (luck) must not have star thresholds`);
+    assert.equal(def.fullScore, null, `${id} (luck) has no score-based reward`);
     assert.equal(starsForScore(id, 99999), 0);
   }
 }
 assert.equal(starsForScore("RECYCLE_CATCH", 0), 0);
 assert.equal(starsForScore("RECYCLE_CATCH", 200), 1);
-assert.equal(starsForScore("RECYCLE_CATCH", 400), 2);
-assert.equal(starsForScore("RECYCLE_CATCH", 650), 3);
+assert.equal(starsForScore("RECYCLE_CATCH", 450), 2);
+assert.equal(starsForScore("RECYCLE_CATCH", 750), 3);
 
 /* ---------- pick ---------- */
 const base = { theme: "ELECTRONICS" as const, category: ItemCategory.LAPTOP, recentIds: [] as MinigameId[], firstEverReward: false };
@@ -75,10 +78,10 @@ for (let i = 0; i < 4000; i += 1) {
   seen.add(id);
   counts[id] = (counts[id] ?? 0) + 1;
 }
-assert.equal(seen.size, 4, "every game is reachable");
+assert.equal(seen.size, MINIGAME_IDS.length, "every game is reachable");
 assert((counts.RECYCLE_CATCH ?? 0) > (counts.PICK_BOX ?? 0) * 1.5, "category affinity doubles the weight");
 for (let i = 0; i < 1500; i += 1) {
-  const recent: MinigameId[] = [MINIGAME_IDS[i % 4]!, MINIGAME_IDS[(i + 1) % 4]!];
+  const recent: MinigameId[] = [MINIGAME_IDS[i % MINIGAME_IDS.length]!, MINIGAME_IDS[(i + 1) % MINIGAME_IDS.length]!];
   const id = pickMinigame({ ...base, sessionId: `rep-${i}`, recentIds: recent });
   assert(!recent.includes(id), "never repeats the last two games");
 }
@@ -186,6 +189,79 @@ assert(threeStars >= 1 && threeStars < runs, `three stars is reachable but not g
 
   const badSlide = drop(1, 0.62, 0.86, (tick) => (tick < 6 ? 0.45 : 0.55 + (tick - 6) * 0.02), 22);
   assert.equal(badSlide.engine.lives, 3, "a bad item brushed by the moving bin after the rim is not counted");
+}
+
+/* ---------- score-based rewards ---------- */
+for (const level of [Level.UNRANKED, Level.BRONZE, Level.GOLD, Level.DIAMOND]) {
+  const { min, max } = rewardRangeForLevel(level);
+  assert.equal(min, MIN_DISCOUNT_PERCENT);
+  assert.equal(max, LEVEL_CONFIG[level].maxDiscountPercent);
+  assert.equal(discountForScore(0, 900, level), min, "a zero score earns the floor");
+  assert.equal(discountForScore(900, 900, level), max, "the full score earns the level's cap");
+  assert.equal(discountForScore(99_999, 900, level), max, "the reward never exceeds the cap");
+  let previous = 0;
+  for (let score = 0; score <= 900; score += 30) {
+    const discount = discountForScore(score, 900, level);
+    assert(discount >= previous, "less score never earns more");
+    assert(discount >= min && discount <= max);
+    previous = discount;
+  }
+}
+assert(discountForScore(450, 900, Level.DIAMOND) < discountForScore(900, 900, Level.DIAMOND), "half the score earns less than the full score");
+
+/* ---------- sky flap engine ---------- */
+{
+  const TICK = 1 / 60;
+  const fresh = (seed: number) => createFlapEngine({ seed, aspect: 0.6 });
+
+  const waiting = fresh(1);
+  for (let i = 0; i < 600; i += 1) waiting.step(TICK);
+  assert(!waiting.started && !waiting.ended && waiting.birdY === 0.45, "nothing moves until the first tap");
+
+  const idle = fresh(1);
+  idle.flap();
+  while (!idle.ended) idle.step(TICK);
+  assert.equal(idle.score, 0, "flapping once and then doing nothing scores nothing");
+  assert.equal(idle.endReason, "CRASH", "and ends in a crash");
+
+  const botRun = (seed: number) => {
+    const engine = fresh(seed);
+    engine.flap();
+    while (!engine.ended) {
+      const next = engine.pipes.filter((p) => p.active && p.x + PIPE_WIDTH > engine.birdX - 0.04).sort((a, b) => a.x - b.x)[0];
+      const target = next ? next.gapY + 0.03 : 0.5;
+      if (engine.birdY > target && engine.birdVy > -0.2) engine.flap();
+      engine.step(TICK);
+    }
+    return { score: engine.score, gap: engine.gap, elapsed: engine.elapsed };
+  };
+  assert.deepEqual(botRun(77), botRun(77), "same seed, same input, same flight");
+  let passing = 0;
+  for (let seed = 1; seed <= 20; seed += 1) {
+    const run = botRun(seed * 104729);
+    if (run.score >= 3) passing += 1;
+    assert(run.elapsed <= FLAP_DURATION_SEC + 0.05, "a flight never outlasts the duration");
+  }
+  assert(passing >= 18, `a steady player clears a few gates (${passing}/20)`);
+
+  const hard = botRun(104729 * 3);
+  assert(hard.gap < 0.31, "the gap narrows as gates are passed");
+
+  // collision: a gate whose gap is far from the bird ends the flight
+  const crash = fresh(2);
+  Object.assign(crash.pipes[0]!, { active: true, x: crash.birdX - 0.05, gapY: 0.2, passed: false });
+  Object.assign(crash, { birdY: 0.7, birdVy: 0, started: true });
+  crash.step(TICK * 3);
+  assert(crash.ended && crash.endReason === "CRASH", "hitting a pipe ends the flight");
+
+  // scoring: flying through the gap scores exactly one point per gate
+  const clear = fresh(3);
+  Object.assign(clear.pipes[0]!, { active: true, x: clear.birdX - PIPE_WIDTH - 0.05, gapY: 0.45, passed: false });
+  Object.assign(clear, { birdY: 0.45, birdVy: 0, started: true });
+  clear.step(TICK * 4);
+  assert.equal(clear.score, 1, "a cleared gate scores one point");
+  assert(!clear.ended);
+  assert(GROUND_Y < 1);
 }
 
 /* ---------- reward stage machine ---------- */
