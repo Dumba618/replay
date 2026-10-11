@@ -9,28 +9,43 @@ import { useLang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const DEVICES: readonly SpriteName[] = ["laptop", "smartphone", "headphones"];
-const OPEN_DELAY_MS = 800;
+const OPEN_DELAY_MS = 700;
 
 /**
- * LUCK game ("Pick a Device"). It looks like a choice, but the reward is already set: whichever
- * device the player taps shows the server-decided discount. The intro and the
- * "How rewards work" sheet say so.
+ * LUCK game ("Pick a Device"). Tapping a device asks the server for a random draw at that moment;
+ * which device is tapped has no effect on the odds. The intro and the "How rewards work" sheet say so.
  */
-export default function PickBoxGame({ prize, mode, onFinish, reducedMotion }: GameProps) {
+export default function PickBoxGame({ reward, mode, onFinish, reducedMotion }: GameProps) {
   const { t } = useLang();
   const [picked, setPicked] = useState<number | null>(null);
+  const [discount, setDiscount] = useState<number | null>(null);
   const [opened, setOpened] = useState(false);
+  const [failed, setFailed] = useState(false);
   const startedAt = useRef(performance.now());
   const done = useRef(false);
 
   useEffect(() => {
-    if (picked === null) return;
+    if (discount === null) return;
     const timer = window.setTimeout(() => {
       setOpened(true);
       haptic("success");
     }, reducedMotion ? 0 : OPEN_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [picked, reducedMotion]);
+  }, [discount, reducedMotion]);
+
+  const pick = async (index: number) => {
+    if (picked !== null) return;
+    haptic("tap");
+    setPicked(index);
+    setFailed(false);
+    const drawn = await reward.draw();
+    if (!drawn) {
+      setFailed(true);
+      setPicked(null);
+      return;
+    }
+    setDiscount(drawn.discountPercent);
+  };
 
   const finish = () => {
     if (done.current) return;
@@ -41,6 +56,11 @@ export default function PickBoxGame({ prize, mode, onFinish, reducedMotion }: Ga
   return (
     <div className="relative flex min-h-0 flex-1 flex-col items-center gap-6 px-4 pt-6">
       <p className="max-w-xs rounded-2xl border-2 border-ink/20 bg-white/90 px-4 py-2 text-center text-sm font-semibold text-ink">{t("pick.hint")}</p>
+      {failed && (
+        <p role="alert" className="rounded-2xl bg-white px-4 py-2 text-center text-sm font-semibold text-destructive">
+          {t("reward.error")}
+        </p>
+      )}
       <div className="mt-6 grid w-full max-w-sm grid-cols-3 gap-3">
         {DEVICES.map((sprite, index) => {
           const isPicked = picked === index;
@@ -53,15 +73,12 @@ export default function PickBoxGame({ prize, mode, onFinish, reducedMotion }: Ga
                 )}
                 aria-live="polite"
               >
-                {isPicked && opened ? (mode === "REWARD" ? `${prize.discountPercent}%` : "-") : "?"}
+                {isPicked && opened && discount !== null ? (mode === "REWARD" ? `${discount}%` : "-") : "?"}
               </div>
               <button
                 type="button"
                 disabled={picked !== null}
-                onClick={() => {
-                  haptic("tap");
-                  setPicked(index);
-                }}
+                onClick={() => void pick(index)}
                 aria-label={`${t("pick.box")} ${index + 1}`}
                 className={cn(
                   "relative aspect-square w-full min-h-24 cursor-pointer rounded-3xl border-[3px] border-ink bg-white/85 p-2 shadow-[0_5px_0_hsl(var(--ink)/0.25)] transition-opacity duration-300",
@@ -77,7 +94,7 @@ export default function PickBoxGame({ prize, mode, onFinish, reducedMotion }: Ga
           );
         })}
       </div>
-      {opened && <RewardCard discountPercent={prize.discountPercent} mode={mode} reducedMotion={reducedMotion} onContinue={finish} />}
+      {opened && discount !== null && <RewardCard discountPercent={discount} mode={mode} reducedMotion={reducedMotion} onContinue={finish} />}
     </div>
   );
 }

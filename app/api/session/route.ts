@@ -1,11 +1,10 @@
 import type { NextRequest } from "next/server";
 import { buildClaimMeta } from "@/lib/analytics";
 import { clientKeyFrom, failureResponse, badRequest, internalErrorResponse, json, parseJsonBody, stringOrEmpty, errorResponse, isUuid } from "@/lib/api";
-import { claimSession, createSession, listSessions, pollSession, spinForVoucher, voidSession } from "@/lib/session-store";
+import { claimSession, createSession, listSessions, pollSession, voidSession } from "@/lib/session-store";
 import { toSpinPayload } from "@/lib/spin-payload";
-import { drawSegment } from "@/lib/wheel";
-import { SessionStatus, StoreErrorCode, type City, type ItemCategory, type Retailer } from "@/types";
-import type { ClaimResponse, CreateSessionResponse, LevelUp, SessionPollResponse, SpinPayload, VoidResponse } from "@/types/api";
+import { LEVEL_CONFIG, MIN_DISCOUNT_PERCENT, SessionStatus, StoreErrorCode, type City, type ItemCategory, type Retailer } from "@/types";
+import type { ClaimResponse, CreateSessionResponse, LevelUp, SessionPollResponse, VoidResponse } from "@/types/api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,9 +79,9 @@ export async function GET(request: NextRequest) {
  * PATCH /api/session
  *
  * Claim (default):  { action?: "claim", pin: "1234", recyclerId: "<uuid>" }
- *   Atomically claims the session, re-derives the level, and — in the same request — draws the
- *   server-side Fortune Wheel result for the level reached. The client only animates it.
- *   200: ClaimResponse { session, alreadyClaimed, recycler, progressBefore, progress, levelUp|null, voucher }
+ *   Atomically claims the session and re-derives the level. It does NOT issue a reward: the reward
+ *   is produced later by POST /api/reward, from the game the player plays (random draw or score).
+ *   200: ClaimResponse { session, alreadyClaimed, recycler, progressBefore, progress, levelUp|null, range, voucher|null }
  *        `alreadyClaimed: true` means an idempotent replay: nothing was counted twice.
  *   400: malformed body / PIN not 4 digits / invalid recyclerId
  *   404: PIN does not match a session
@@ -116,9 +115,9 @@ export async function PATCH(request: NextRequest) {
     const claim = claimSession({ pin: stringOrEmpty(body.pin), recyclerId, clientKey: clientKeyFrom(request) });
     if (!claim.ok) return failureResponse(claim);
 
-    const spin = spinForVoucher({ sessionId: claim.session.id, recyclerId }, drawSegment);
-    const voucher: SpinPayload | null = spin.ok ? toSpinPayload(spin.voucher, spin.alreadySpun) : null;
-
+    // The reward is NOT decided here. It is issued by POST /api/reward when the player finishes (or draws in) the game.
+    const existing = claim.session.voucher;
+    const level = claim.levelAfter;
     const payload: ClaimResponse = {
       serverNow: Date.now(),
       session: claim.session,
@@ -127,8 +126,8 @@ export async function PATCH(request: NextRequest) {
       progressBefore: claim.progressBefore,
       progress: claim.progressAfter,
       levelUp: claim.leveledUp ? { from: claim.levelBefore, to: claim.levelAfter } : null,
-      voucher,
-      ...(spin.ok ? {} : { spinError: { error: spin.error, message: spin.message } }),
+      range: { level, minPercent: MIN_DISCOUNT_PERCENT, maxPercent: LEVEL_CONFIG[level].maxDiscountPercent },
+      voucher: existing ? toSpinPayload(existing, true) : null,
     };
     return json(payload);
   } catch (err) {

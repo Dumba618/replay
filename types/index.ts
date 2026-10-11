@@ -343,6 +343,22 @@ export function buildLevelProgress(dropOffs: number): LevelProgress {
   };
 }
 
+/** Reward range available at a level: from the global floor up to the level's cap. */
+export function rewardRangeForLevel(level: Level): { readonly min: number; readonly max: number } {
+  return { min: MIN_DISCOUNT_PERCENT, max: LEVEL_CONFIG[level].maxDiscountPercent };
+}
+
+/**
+ * Discount earned by a skill-game score: a score of 0 earns the floor (15%), `fullScore` or more
+ * earns the level's cap, and anything in between scales linearly. Pure, so the phone can preview it
+ * and the server can compute the real value.
+ */
+export function discountForScore(score: number, fullScore: number, level: Level): number {
+  const { min, max } = rewardRangeForLevel(level);
+  const ratio = fullScore > 0 && Number.isFinite(score) ? Math.min(1, Math.max(0, score / fullScore)) : 0;
+  return Math.round(min + ratio * (max - min));
+}
+
 /**
  * Validates LEVEL_CONFIG invariants: ascending thresholds, 8 segments, unique
  * ids, positive weights, and the margin guard. Returns a list of problems

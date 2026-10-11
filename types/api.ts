@@ -59,10 +59,28 @@ export interface VoidBody {
   readonly reason: string;
 }
 
+/** The reward range at the level reached by a claim. */
+export interface RewardRange {
+  readonly level: Level;
+  readonly minPercent: number;
+  readonly maxPercent: number;
+}
+
+/** POST /api/reward: ask the server to issue the single reward of a claimed session. */
+export interface RewardBody {
+  readonly sessionId: string;
+  readonly recyclerId: string;
+  /** Which game was played. Its kind (SKILL or LUCK) is decided by the server's registry, never by the client. */
+  readonly gameId?: string;
+  /** SKILL games only: the final score and play time (milliseconds). */
+  readonly score?: number;
+  readonly durationMs?: number;
+}
+
 export interface SpinPayload {
   readonly voucher: Voucher;
   readonly segment: WheelSegment;
-  /** Index of the server-decided segment inside `wheelSegments`. Minigames only display it. */
+  /** Index of the server-chosen segment inside `wheelSegments`, or -1 for score-based (skill) rewards. */
   readonly segmentIndex: number;
   /** The prize table of `wheelLevel`, in on-screen order (lets any minigame render the wheel). */
   readonly wheelSegments: readonly WheelSegment[];
@@ -81,9 +99,10 @@ export interface ClaimResponse {
   readonly progress: LevelProgress;
   /** Present only when a level threshold was crossed by this claim. */
   readonly levelUp: LevelUp | null;
-  /** Server-decided wheel result; null only when `spinError` is set. */
+  /** What this level can win: from the 15% floor to the level's cap. */
+  readonly range: RewardRange;
+  /** The voucher this session already has (a replayed claim after playing), else null. Rewards are issued by POST /api/reward. */
   readonly voucher: SpinPayload | null;
-  readonly spinError?: { readonly error: StoreErrorCode; readonly message: string };
 }
 
 export interface VoidResponse {

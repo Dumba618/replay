@@ -13,9 +13,10 @@ Research that informed it (Too Good To Go, Starbucks Rewards, Duolingo, Plastic 
 | Id | Name | Kind | Notes |
 |---|---|---|---|
 | `RECYCLE_CATCH` | Recycle Catch | SKILL | Illustrated gadgets fall (laptop, phone, headphones...). Catch them in the bin; dodge banana, apple, pizza, plastic cup. Battery restores a heart, golden coin is worth 5x. Pop-up points, bin squash, red flash on a miss. |
-| `WHEEL` | Fortune Wheel | LUCK | Open-source `spin-wheel`, animates to the server-chosen segment. |
-| `PICK_BOX` | Pick a Device | LUCK | Three gadgets; whichever is tapped shows the already-set reward (disclosed). |
-| `CLAW` | Claw Machine | LUCK | Claw lifts a gadget that opens to the already-set reward (disclosed). |
+| `WHEEL` | Fortune Wheel | LUCK | Open-source `spin-wheel`; the server draws the segment at the spin and the wheel lands on it. |
+| `PICK_BOX` | Pick a Device | LUCK | Three gadgets; the server draws the reward when one is tapped (disclosed). |
+| `CLAW` | Claw Machine | LUCK | Claw lifts a gadget; the server draws the reward at the grab. |
+| `SKY_FLAP` | Sky Flap | SKILL | Tap to flap an original blue bird through green gates over the same layered hills. Each gate passed raises the reward. |
 
 ## Rules (unchanged)
-Touch targets >= 44px, controls in the lower half, contrast >= 4.5:1 for text, good/bad/power-up/bonus differ by badge shape (check, cross, bolt, star) as well as colour, transform/opacity-only animation, reduced-motion fallbacks, Skip from 3 s, 30 s hard cap, prize decided by the server and never influenced by a game.
+Touch targets >= 44px, controls in the lower half, contrast >= 4.5:1 for text, good/bad/power-up/bonus differ by badge shape (check, cross, bolt, star) as well as colour, transform/opacity-only animation, reduced-motion fallbacks, Skip from 3 s, 30 s hard cap, nothing is preset: luck games get a random server draw at the moment of play, skill games earn a discount from the score (15% floor up to the level cap), and difficulty rises as you play. The reward is issued once per drop-off by the server.

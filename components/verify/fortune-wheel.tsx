@@ -18,8 +18,8 @@ const POINTER = "hsl(0, 78%, 55%)";
 interface FortuneWheelProps {
   /** Prize table drawn on the wheel (already chosen by the server). */
   segments: readonly WheelSegment[];
-  /** Index of the segment the SERVER already picked; the wheel only animates to it. */
-  targetIndex: number;
+  /** Asks the server for a random draw when the player spins; resolves with the segment to land on, or null on failure. */
+  getTarget: () => Promise<number | null>;
   reducedMotion: boolean;
   label: string;
   onFinished: () => void;
@@ -27,10 +27,10 @@ interface FortuneWheelProps {
 
 /**
  * Fortune wheel drawn by the open-source `spin-wheel` library (MIT, CrazyTim).
- * RePlay only styles it and calls `spinToItem(targetIndex)`; the library never
- * decides anything and the wheel is not draggable.
+ * RePlay only styles it and calls `spinToItem(segment)` with the segment the server drew;
+ * the library never decides anything and the wheel is not draggable.
  */
-export function FortuneWheel({ segments, targetIndex, reducedMotion, label, onFinished }: FortuneWheelProps) {
+export function FortuneWheel({ segments, getTarget, reducedMotion, label, onFinished }: FortuneWheelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wheelRef = useRef<Wheel | null>(null);
   const finishedRef = useRef(false);
@@ -88,11 +88,16 @@ export function FortuneWheel({ segments, targetIndex, reducedMotion, label, onFi
     };
   }, [items]);
 
-  const spin = () => {
+  const spin = async () => {
     const wheel = wheelRef.current;
     if (!wheel || phase !== "ready") return;
     setPhase("spinning");
-    wheel.spinToItem(targetIndex, reducedMotion ? 0 : SPIN_MS, true, reducedMotion ? 0 : REVOLUTIONS, 1);
+    const target = await getTarget();
+    if (target === null) {
+      setPhase("ready");
+      return;
+    }
+    wheel.spinToItem(target, reducedMotion ? 0 : SPIN_MS, true, reducedMotion ? 0 : REVOLUTIONS, 1);
     // Safety net: if the library never raises `rest`, still finish.
     timer.current = window.setTimeout(
       () => {
@@ -120,7 +125,7 @@ export function FortuneWheel({ segments, targetIndex, reducedMotion, label, onFi
           RP
         </div>
       </div>
-      <Button size="lg" onClick={spin} disabled={!ready || phase !== "ready"} className="min-w-52">
+      <Button size="lg" onClick={() => void spin()} disabled={!ready || phase !== "ready"} className="min-w-52">
         <Sparkles aria-hidden="true" />
         {label}
       </Button>

@@ -74,7 +74,7 @@ export function PrizeReveal({ discountPercent, levelColor, reducedMotion, onCont
           </p>
         </div>
 
-        <p className="max-w-xs rounded-2xl bg-white/90 px-4 py-2 text-sm font-semibold">{t("reveal.set")}</p>
+        <p className="max-w-xs rounded-2xl bg-white/90 px-4 py-2 text-sm font-semibold">{t("reveal.skill")}</p>
         <Button size="lg" onClick={onContinue} className={cn("transition-opacity duration-300", phase === "done" ? "opacity-100" : "opacity-0")} disabled={phase !== "done"}>
           <Ticket aria-hidden="true" /> {t("reveal.show")}
         </Button>

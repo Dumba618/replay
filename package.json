@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3000",
+    "start": "next start -H 0.0.0.0",
     "start:render": "next start -H 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "test:store": "npx --yes tsx@4.23.15 --conditions react-server scripts/store-smoke.ts",

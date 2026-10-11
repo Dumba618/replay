@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { RewardCard } from "@/components/game/minigames/games/RewardCard";
 import { Sprite } from "@/components/game/minigames/sprites";
 import { useGameLoop } from "@/components/game/minigames/useGameLoop";
-import type { GameProps, SpriteName } from "@/lib/minigames/types";
+import type { GameProps, RewardDraw, SpriteName } from "@/lib/minigames/types";
 import { haptic } from "@/lib/haptics";
 import { useLang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -38,13 +38,15 @@ function ClawArt({ closed }: { closed: boolean }) {
 }
 
 /**
- * LUCK game. The claw is cosmetic: whichever gadget it lifts opens to the
- * reward that was already decided by the server.
+ * LUCK game. Pressing Grab asks the server for a random draw while the claw drops; which gadget the
+ * claw lifts has no effect on the odds.
  */
-export default function ClawGame({ prize, mode, onFinish, reducedMotion }: GameProps) {
+export default function ClawGame({ reward, mode, onFinish, reducedMotion }: GameProps) {
   const { t } = useLang();
   const [phase, setPhase] = useState<Phase>("aim");
   const [grabbed, setGrabbed] = useState<number | null>(null);
+  const [discount, setDiscount] = useState<number | null>(null);
+  const [failed, setFailed] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
   const clawRef = useRef<HTMLDivElement>(null);
   const clawX = useRef(0.5);
@@ -52,6 +54,7 @@ export default function ClawGame({ prize, mode, onFinish, reducedMotion }: GameP
   const startedAt = useRef(performance.now());
   const done = useRef(false);
   const timers = useRef<number[]>([]);
+  const drawing = useRef<Promise<RewardDraw | null> | null>(null);
 
   const place = (x: number, y: number, animate: boolean, ms: number) => {
     const claw = clawRef.current;
@@ -65,6 +68,7 @@ export default function ClawGame({ prize, mode, onFinish, reducedMotion }: GameP
     place(clawX.current, 0, false, 0);
     const pending = timers.current;
     return () => pending.forEach((timer) => window.clearTimeout(timer));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useGameLoop((dt) => {
@@ -78,10 +82,12 @@ export default function ClawGame({ prize, mode, onFinish, reducedMotion }: GameP
     const field = fieldRef.current;
     if (!field) return;
     haptic("tap");
+    setFailed(false);
     const index = Math.min(PRIZES.length - 1, Math.max(0, Math.round((clawX.current - 0.1) / 0.2)));
     clawX.current = prizeX(index);
     setGrabbed(index);
     setPhase("drop");
+    drawing.current = reward.draw();
     const dropY = Math.max(40, field.clientHeight - PIT_HEIGHT_PX - 56);
     place(clawX.current, dropY, true, DROP_MS);
     const dropTime = reducedMotion ? 0 : DROP_MS;
@@ -92,8 +98,18 @@ export default function ClawGame({ prize, mode, onFinish, reducedMotion }: GameP
         place(clawX.current, 0, true, LIFT_MS);
       }, dropTime + 80),
       window.setTimeout(() => {
-        setPhase("open");
-        haptic("success");
+        void (drawing.current ?? Promise.resolve(null)).then((drawn) => {
+          if (!drawn) {
+            setFailed(true);
+            setGrabbed(null);
+            setPhase("aim");
+            place(clawX.current, 0, false, 0);
+            return;
+          }
+          setDiscount(drawn.discountPercent);
+          setPhase("open");
+          haptic("success");
+        });
       }, dropTime + liftTime + 160),
     );
   };
@@ -112,7 +128,7 @@ export default function ClawGame({ prize, mode, onFinish, reducedMotion }: GameP
   const arrow = "grid size-14 cursor-pointer place-items-center rounded-full border-[3px] border-ink bg-azure text-white shadow-[0_4px_0_hsl(var(--ink))] active:translate-y-[3px] active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40";
   return (
     <div className="relative flex min-h-0 flex-1 flex-col gap-3 px-3 pb-3 pt-1">
-      <p className="mx-auto rounded-2xl border-2 border-ink/20 bg-white/90 px-4 py-1.5 text-center text-xs font-semibold text-ink">{t("claw.hint")}</p>
+      <p className="mx-auto rounded-2xl border-2 border-ink/20 bg-white/90 px-4 py-1.5 text-center text-xs font-semibold text-ink">{failed ? t("reward.error") : t("claw.hint")}</p>
       <div ref={fieldRef} className="relative min-h-0 flex-1 overflow-hidden rounded-3xl border-[3px] border-ink bg-white/55 shadow-[0_6px_0_hsl(var(--ink)/0.2)]">
         <div className="absolute inset-x-4 top-3 h-2 rounded-full bg-ink/35" aria-hidden="true" />
         <div ref={clawRef} className="absolute left-0 top-3 flex w-12 flex-col items-center will-change-transform" aria-hidden="true">
@@ -138,14 +154,14 @@ export default function ClawGame({ prize, mode, onFinish, reducedMotion }: GameP
           <ArrowLeft className="size-6" aria-hidden="true" />
         </button>
         <Button size="lg" className="min-w-40" onClick={grab} disabled={phase !== "aim"}>
-          <Grab aria-hidden="true" /> {t("claw.grab")}
+          <Grab aria-hidden="true" /> {failed ? t("reward.retry") : t("claw.grab")}
         </Button>
         <button type="button" aria-label="Right" disabled={phase !== "aim"} onPointerDown={steer(1)} onPointerUp={steer(0)} onPointerLeave={steer(0)} onPointerCancel={steer(0)} className={arrow}>
           <ArrowRight className="size-6" aria-hidden="true" />
         </button>
       </div>
 
-      {phase === "open" && <RewardCard discountPercent={prize.discountPercent} mode={mode} reducedMotion={reducedMotion} onContinue={finish} />}
+      {phase === "open" && discount !== null && <RewardCard discountPercent={discount} mode={mode} reducedMotion={reducedMotion} onContinue={finish} />}
     </div>
   );
 }

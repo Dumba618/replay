@@ -14,6 +14,7 @@ const GAME_COMPONENTS: Readonly<Record<MinigameId, ComponentType<GameProps>>> = 
   RECYCLE_CATCH: dynamic(() => import("@/components/game/minigames/games/RecycleCatchGame"), { ssr: false }),
   PICK_BOX: dynamic(() => import("@/components/game/minigames/games/PickBoxGame"), { ssr: false }),
   CLAW: dynamic(() => import("@/components/game/minigames/games/ClawGame"), { ssr: false }),
+  SKY_FLAP: dynamic(() => import("@/components/game/minigames/games/SkyFlapGame"), { ssr: false }),
 };
 
 const TICK_MS = 250;
