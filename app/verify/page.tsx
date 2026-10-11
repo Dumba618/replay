@@ -416,7 +416,7 @@ export default function VerifyPage() {
             <GameIntro
               game={MINIGAMES[gameId]}
               range={claim?.range ?? { minPercent: 15, maxPercent: 20 }}
-              choices={demoEnabled ? enabledMinigames().map((id) => MINIGAMES[id]) : undefined}
+              choices={enabledMinigames().map((id) => MINIGAMES[id])}
               onChoose={(id) => {
                 recordPick(id);
                 setGameId(id);

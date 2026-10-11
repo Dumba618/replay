@@ -70,7 +70,7 @@ Nothing is preset. A claim only confirms the drop-off and returns the reward **r
 | Pick a Device | Luck | Tap a laptop, phone or headphones; the server draws on the tap. |
 | Claw Machine | Luck | The claw lifts a gadget; the server draws on the grab. |
 
-Demo mode (`REPLAY_DEMO=true`): after verifying, the game intro shows a picker so the presenter can choose any of the five games instead of the random pick. Without the flag the game is random.
+Choosing a game: after verifying, the intro starts on a randomly picked game and shows a "Choose your game" row, so every player can switch to any of the five games before pressing Play. (The `?game=` address shortcut still needs `REPLAY_DEMO=true`.)
 
 Shared rules: a HUD with timer, score and Skip (from 3 seconds), a 30-second hard cap, one `onFinish` per play, reduced-motion fallbacks, stars (0 to 3) and best scores stored only on the phone (`replay.arcade.v1`), reload mid-game resumes at the ticket, and a "How rewards work" sheet reachable from the intro and `/me`.
 

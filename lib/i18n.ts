@@ -63,7 +63,7 @@ const STRINGS = {
   "reward.error": { en: "Couldn't reach the server. Check your connection and try again.", ka: "სერვერთან დაკავშირება ვერ მოხერხდა. შეამოწმეთ კავშირი და სცადეთ თავიდან." },
   "reward.retry": { en: "Try again", ka: "სცადეთ თავიდან" },
   "flap.hint": { en: "Tap to flap. Fly through the gaps: every gate raises your reward.", ka: "შეეხეთ ფრთების საქნევად. გაიარეთ ღიობები: თითოეული კარიბჭე ჯილდოს ზრდის." },
-  "intro.choose": { en: "Demo mode: pick the game", ka: "დემო რეჟიმი: აირჩიეთ თამაში" },
+  "intro.choose": { en: "Choose your game", ka: "აირჩიეთ თამაში" },
   "me.title": { en: "My profile", ka: "ჩემი პროფილი" },
   "me.practice": { en: "Practice games", ka: "სავარჯიშო თამაშები" },
   "me.practiceNote": { en: "No reward is involved here. Stars and best scores stay on this phone.", ka: "აქ ჯილდო არ არის. ვარსკვლავები და საუკეთესო ქულები ინახება მხოლოდ ამ ტელეფონში." },
