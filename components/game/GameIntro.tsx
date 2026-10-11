@@ -20,7 +20,7 @@ interface GameIntroProps {
   game: MinigameDef;
   /** What this level can earn (percent off). */
   range: { readonly minPercent: number; readonly maxPercent: number };
-  /** Demo mode only: lets the presenter choose which game to play instead of the random pick. */
+  /** Every enabled game. The intro starts on a random one; the player may switch to any other. */
   choices?: readonly MinigameDef[];
   onChoose?: (id: MinigameDef["id"]) => void;
   reducedMotion: boolean;
